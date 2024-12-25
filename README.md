@@ -60,7 +60,7 @@ the max size for a file is 4GB (block_size\*(4+1024+1024\*1024): 4 direct + 1024
 basicly the inverse of encrypt (un-noise -> unshuffle -> decrypt)
 
 # Benchmark 
-using random 5MB of data
+using random 5MB of data for a external SSD (max 550 Mo/s)
 - Encrypted:
     - reset: 0.2513s
     - write: 11.6727s
