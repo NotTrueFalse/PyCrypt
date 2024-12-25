@@ -2,7 +2,7 @@
 Little project to mimic Veracrypt using python.
 
 ## Initialisation
-Before running FS.py, modify it to add your disk serial number, that you can find using the commad : wmic diskdrive
+Before running FS.py, modify it to add your disk serial number, that you can find using the commad : `wmic diskdrive`<br>
 the script always as to be run as root because we're touching at disk sectors directly.
 
 ## The main idea
