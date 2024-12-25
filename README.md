@@ -54,7 +54,7 @@ the max size for a file is 4GB (block_size\*(4+1024+1024\*1024): 4 direct + 1024
 - generate a seed -> int(sha256(final_key+sector_number.tobyte(4,"big")),16)
 - encrypted -> AES(final_key,MODE_ECB)
 - shuffle_bytes(seed,encrypted_data)
-- add_noise(seed,encrypted_data)
+- add_noise(seed,shuffled_data)
 
 # Decrypt
 basicly the inverse of encrypt (un-noise -> unshuffle -> decrypt)
