@@ -2,6 +2,7 @@
 Little project to mimic Veracrypt using python.
 
 ## Initialisation
+The disk you want to use need to be formatted as RAW, you can use any disk utility.
 Before running FS.py, modify it to add your disk serial number, that you can find using the commad : `wmic diskdrive`<br>
 the script always as to be run as root because we're touching at disk sectors directly.
 
