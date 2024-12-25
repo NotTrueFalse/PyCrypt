@@ -11,7 +11,11 @@ class Disk:
         self.serial = serial
         # self.serial_mount = self.get_serial_mount()
         self.drive_info = self.get_drive_info()
-        self.physical_drive = self.drive_info["device_id"]
+        try:
+            self.physical_drive = self.drive_info["device_id"]
+        except Exception as e:
+            print(f"No device found, please enter a valid serial in FS.py ({e})")
+            return
         # sizes
         self.disk_size = int(self.drive_info["size"])
         self.number_of_sectors = int(self.drive_info["sectors"])
