@@ -83,17 +83,17 @@ class FileSystem:
 
     def __init__(self,skip:int,passwd=None,pin= None):
         """Explorer class to handle disk and crypt"""
-        serial = ""
+        with open("config.ini", "r") as f:
+            serial = f.readline().strip().split("=")[1]
         self.disk = Disk(serial, skip)
         passwd = input("Enter password: ") if passwd is None else passwd
         pin = input("Enter PIN: ") if pin is None else pin
         self.crypt_module = SectorCrypt(passwd, pin)
         self.mode = "crypt"
         self.number_of_inode_blocks = 0
-        self.block_size = 4096
-        self.quotien = self.block_size//self.disk.sector_size#to be sure that we have a full block
+        self.block_size = 4096# NEED TO BE CONGRUENT TO SECTOR SIZE !!!
         self.init_fs()
-        # self.bitmap = self.read_bitmap()#very slow
+        # self.bitmap = self.read_bitmap()#very slow way of loading everything
         self.bitmap = {}
         self.hot_bitmap_blocks = {}#edit bitmap blocks in memory to avoid writing to disk multiple times
         self.directory = self.read_inodes()
@@ -101,7 +101,7 @@ class FileSystem:
         
     def read_sector(self, sector:int):
         if DEBUG:print(f"Reading sector {sector}")
-        sector_data = self.disk.read_sector(sector)
+        sector_data = self.disk.read_sector(sector,self.block_size)
         if self.mode == "crypt":
             if sector_data is None or not any(sector_data):
                 return b""
@@ -118,30 +118,10 @@ class FileSystem:
         """
         if DEBUG:print(f"Writing to sector {sector}")
         if self.mode == "crypt":
-            encrypted_sector = self.crypt_module.encrypt_sector(sector, data.ljust(self.disk.sector_size, b"\x00"))
+            encrypted_sector = self.crypt_module.encrypt_sector(sector, data.ljust(self.block_size, b"\x00"))
             self.disk.write_sector(sector, encrypted_sector)
         else:
-            self.disk.write_sector(sector, data.ljust(self.disk.sector_size, b"\x00"))
-        return 1
-
-    def read_block(self, position:int):
-        """Read block:
-        - Read sector by sector
-        - Return block
-        """
-        block = b""
-        for i in range(self.quotien):
-            block += self.read_sector(position*self.quotien+i)
-        return block
-    
-    def write_block(self, position:int, data:bytes):
-        """Write block:
-        - Write sector by sector
-        """
-        for i in range(self.quotien):#number of sectors per block
-            updated = data[i*self.disk.sector_size:(i+1)*self.disk.sector_size]
-            if not any(updated):continue#skip empty sectors
-            self.write_sector(position*self.quotien+i, updated)
+            self.disk.write_sector(sector, data.ljust(self.block_size, b"\x00"))
         return 1
 
     def init_fs(self,force=False):
@@ -151,11 +131,11 @@ class FileSystem:
             - number of inode blocks
             - number of inodes in inode blocks
         """
-        superblock = self.read_block(0)
-        total_block_number = self.disk.number_of_sectors//self.quotien
-        self.number_of_inode_blocks = round((total_block_number-1)/100_000)#.001% of disk size (1 inode block per 1000 sectors)
+        superblock = self.read_sector(0)
+        self.number_of_blocks = self.disk.number_of_sectors//(self.block_size//self.disk.sector_size)
+        self.number_of_inode_blocks = round((self.number_of_blocks-1)/100_000)#.001% of disk size (1 inode block per 1000 sectors)
         #self.disk.block_size*8 => number of bits in a block
-        self.number_of_bitmap_blocks = (total_block_number-self.number_of_inode_blocks-1)//(self.block_size*8)#num of blocks - superblock - inode blocks (free space)
+        self.number_of_bitmap_blocks = (self.number_of_blocks-self.number_of_inode_blocks-1)//(self.block_size*8)#num of blocks - superblock - inode blocks (free space)
         self.offset_data = self.number_of_bitmap_blocks + self.number_of_inode_blocks + 1
         if superblock[:4] == self.magic_number and not force:return
         print("[*] Initializing filesystem...")
@@ -163,27 +143,27 @@ class FileSystem:
         superblock += self.number_of_bitmap_blocks.to_bytes(4, byteorder="big")
         superblock += self.number_of_inode_blocks.to_bytes(4, byteorder="big")
         superblock += b"\x00\x00\x00\x00"#none for now
-        self.write_block(0, superblock)
+        self.write_sector(0, superblock)
         # Create bitmap + inode blocks
         if not force:#already done
             for blockpos in range(1, self.offset_data):
-                self.write_block(blockpos, b"\x00"*self.block_size)
-                print(f"[*] {blockpos}/{self.offset_data} ({round(blockpos/self.offset_data*100)}%)", end="\r")
+                self.write_sector(blockpos, b"\x00"*self.block_size)
+                #print(f"[*] {blockpos}/{self.offset_data} ({round(blockpos/self.offset_data*100)}%)", end="\r")
         return
     
     def update_superblock(self):
         """Update superblock:
             - number of inodes in inode Block
         """
-        superblock = self.read_block(0)
+        superblock = self.read_sector(0)
         superblock = superblock[:12]#skip magic number + number of bitmap blocks + number of inode blocks
         superblock += len(self.directory).to_bytes(4, byteorder="big")
-        self.write_block(0, superblock)
+        self.write_sector(0, superblock)
         return
     
     def load_bitmap(self,block_number:int):
         """Load bitmap for a specific block"""
-        bitmap_block = self.read_block(block_number)
+        bitmap_block = self.read_sector(block_number)
         self.hot_bitmap_blocks[block_number] = bitmap_block
         for byte_number in range(self.block_size):
             for bit_number in range(8):
@@ -205,14 +185,14 @@ class FileSystem:
         bit_number = (block_pos%self.block_size)%8
         bitmap_block = bitmap_block[:byte_number] + bytes([bitmap_block[byte_number]^(1<<bit_number)]) + bitmap_block[byte_number+1:]
         self.hot_bitmap_blocks[bitmap_block_number] = bitmap_block
-        # self.write_block(bitmap_block_number, bitmap_block)
+        # self.write_sector(bitmap_block_number, bitmap_block)
         if DEBUG:print(f"[*] {block_pos} {bitmap_block_number} {byte_number} {bit_number}")
 
     def save_bitmap(self):
         """Save bitmap to disk"""
         for block_pos in self.hot_bitmap_blocks:
-            self.write_block(block_pos, self.hot_bitmap_blocks[block_pos])
-            print(f"[*] Saving bitmap block {block_pos}", end="\r")
+            self.write_sector(block_pos, self.hot_bitmap_blocks[block_pos])
+            # print(f"[*] Saving bitmap block", end="\r")
         self.hot_bitmap_blocks = {}#clear hot blocks
         return
 
@@ -224,17 +204,21 @@ class FileSystem:
         print("[*] Loading inodes...")
         directory = {}
         for block_position in range(self.number_of_bitmap_blocks+1, self.offset_data+1):
-            inode_block = self.read_block(block_position)
+            inode_block = self.read_sector(block_position)
+            offset_position = block_position-(self.number_of_bitmap_blocks+1)
+            max_inode_in_block = self.block_size//64
             for j in range(0, self.block_size, 64):#inode size 64
                 try:
-                    inode = Inode(inode_block[j:j+64], block_position*self.block_size+j)
+                    #j//max_inode_in_block => position in inode block
+                    #offset_position*self.block_size => offset in inode blocks (in wich block we are)
+                    inode = Inode(inode_block[j:j+64], j//max_inode_in_block+(offset_position*self.block_size)//max_inode_in_block)
                 except Exception as e:
                     if DEBUG:print(f"[-] Error reading inode: {e}")
                     continue
                 # if j == 0 and block_position == self.number_of_bitmap_blocks+1:print(inode_block[j:j+64])
                 if inode.valid:directory[inode.name] = inode
-            percentage = block_position-(self.number_of_bitmap_blocks+1)
-            print(f"[*] {percentage}/{self.offset_data-self.number_of_bitmap_blocks+1} ({round(percentage/(self.offset_data-self.number_of_bitmap_blocks+1)*100)}%)", end="\r")
+            # percentage = block_position-(self.number_of_bitmap_blocks+1)
+            # print(f"[*] {percentage}/{self.offset_data-self.number_of_bitmap_blocks+1} ({round(percentage/(self.offset_data-self.number_of_bitmap_blocks+1)*100)}%)", end="\r")
         return directory
     
     def add_inode(self, inode:Inode):
@@ -242,24 +226,28 @@ class FileSystem:
         - for all inode blocks, if block is full skip, else write inodes
         """
         for block_position in range(self.number_of_bitmap_blocks+1, self.offset_data+1):
-            inode_block = self.read_block(block_position)
+            inode_block = self.read_sector(block_position)
+            offset_position = block_position-(self.number_of_bitmap_blocks+1)
+            max_inode_in_block = self.block_size//64
             for j in range(0, self.block_size, 64):
-                test_inode = Inode(inode_block[j:j+64], block_position*self.block_size+j)
+                test_inode = Inode(inode_block[j:j+64], j//max_inode_in_block+(offset_position*self.block_size)//max_inode_in_block)
                 if not test_inode.valid:
                     inode_block = inode_block[:j] + inode.to_bytes() + inode_block[j+64:]
-                    self.write_block(block_position, inode_block)
+                    self.write_sector(block_position, inode_block)
                     return
         raise Exception("Maximum number of inodes reached")
 
     def update_node(self, inode:Inode):
         """Update inode:
         - Write inode to inode block
+        position: position in inode block (0-n) (64 octets per inode and we have block_size/64 inodes per block)
         """
-        offset = self.number_of_bitmap_blocks + 1
-        inode_block = self.read_block(offset+inode.position//self.block_size)
-        inode_block = inode_block[:inode.position%self.block_size] + inode.to_bytes() + inode_block[inode.position%self.block_size+64:]
-        self.write_block(offset+inode.position//self.block_size, inode_block)
-        return
+        offset = self.number_of_bitmap_blocks+1
+        max_inode_in_block = self.block_size//64
+        inode_block = self.read_sector(offset+(inode.position//max_inode_in_block))
+        inode_block = inode_block[:64*(inode.position%max_inode_in_block)] + inode.to_bytes() + inode_block[64*(inode.position%max_inode_in_block)+64:]
+        self.write_sector(offset+(inode.position//max_inode_in_block), inode_block)
+        return True
 
     def find_file(self, filename:str)->Inode:
         """Find file in directory:
@@ -283,29 +271,29 @@ class FileSystem:
             for i in range(4):
                 if inode.direct[i] == 0:
                     break
-                yield self.read_block(inode.direct[i])
+                yield self.read_sector(inode.direct[i])
             if inode.indirect != 0:
-                indirect_block = self.read_block(inode.indirect)
+                indirect_block = self.read_sector(inode.indirect)
                 for i in range(0, self.block_size, 4):
                     pointer = int.from_bytes(indirect_block[i:i+4], byteorder="big")
                     if pointer == 0:
                         break
                     if DEBUG:print(f"[*] Reading indirect block {pointer}")
-                    yield self.read_block(pointer)
+                    yield self.read_sector(pointer)
             if inode.double_indirect != 0:
-                double_indirect_block = self.read_block(inode.double_indirect)
+                double_indirect_block = self.read_sector(inode.double_indirect)
                 for i in range(0, self.block_size, 4):
                     indirect_pointer = int.from_bytes(double_indirect_block[i:i+4], byteorder="big")
                     if pointer == 0:
                         break
                     if DEBUG:print(f"[*] Reading double indirect block {indirect_pointer}")
-                    indirect_block = self.read_block(indirect_pointer)
+                    indirect_block = self.read_sector(indirect_pointer)
                     for j in range(0, self.block_size, 4):
                         pointer = int.from_bytes(indirect_block[j:j+4], byteorder="big")
                         if pointer == 0:
                             break
                         if DEBUG:print(f"[*] Reading indirect block {pointer}")
-                        yield self.read_block(pointer)
+                        yield self.read_sector(pointer)
         except KeyboardInterrupt:
             print("[-] Cancelled reading file")
             return None
@@ -317,7 +305,7 @@ class FileSystem:
         - Return first free inode
         """
         for i in range(self.number_of_bitmap_blocks+1, self.offset_data):
-            inode_block = self.read_block(i)
+            inode_block = self.read_sector(i)
             for j in range(0, self.block_size, 64):#inode size 64
                 inode = Inode(inode_block[j:j+64], j)
                 if not inode.valid:
@@ -359,7 +347,7 @@ class FileSystem:
         - reverse inode position from data block position, if its deleted, return it
         """
         #USE self.bitmap
-        for position in range(self.offset_data, self.disk.number_of_sectors//self.quotien):#skip superblock, bitmap blocks, inode blocks and go to max data blocks (not sector)
+        for position in range(self.offset_data, self.number_of_blocks):#skip superblock, bitmap blocks, inode blocks and go to max data blocks (not sector)
             #we divide by quotien to get the real block position
             if position not in self.bitmap or self.bitmap[position] == 0:
                 self.xor_bitmap(position)
@@ -380,15 +368,15 @@ class FileSystem:
         - if data > 4*self.block_size+1024*self.block_size, write to double indirect block
         - for double indirect block, write pointers to indirect blocks
         """
-        ogsize = len(data)
-        t1 = time.time()
+        # ogsize = len(data)
+        # t1 = time.time()
         for i in range(4):
             if not data:
                 break
             if inode.direct[i] == 0:
                 inode.direct[i] = self.find_free_data_block()
-            self.write_block(inode.direct[i], data[:self.block_size])
-            self.loading("Writing",len(data),ogsize,t1)
+            self.write_sector(inode.direct[i], data[:self.block_size])
+            # self.loading("Writing",len(data),ogsize,t1)
             data = data[self.block_size:]
         if data:
             if inode.indirect == 0:
@@ -399,10 +387,10 @@ class FileSystem:
                     break
                 pointer = self.find_free_data_block()
                 indirect_block += pointer.to_bytes(4, byteorder="big")
-                self.write_block(pointer, data[:self.block_size])
+                self.write_sector(pointer, data[:self.block_size])
                 data = data[self.block_size:]
-                self.loading("Writing",len(data),ogsize,t1)
-            self.write_block(inode.indirect, indirect_block)
+                # self.loading("Writing",len(data),ogsize,t1)
+            self.write_sector(inode.indirect, indirect_block)
             if data:
                 try:
                     if inode.double_indirect == 0:
@@ -419,11 +407,11 @@ class FileSystem:
                                 break
                             pointer = self.find_free_data_block()
                             indirect_block += pointer.to_bytes(4, byteorder="big")
-                            self.write_block(pointer, data[:self.block_size])
+                            self.write_sector(pointer, data[:self.block_size])
                             data = data[self.block_size:]
-                            self.loading("Writing",len(data),ogsize,t1)
-                        self.write_block(indirect_pointer, indirect_block)
-                    self.write_block(inode.double_indirect, double_indirect_block)
+                            # self.loading("Writing",len(data),ogsize,t1)
+                        self.write_sector(indirect_pointer, indirect_block)
+                    self.write_sector(inode.double_indirect, double_indirect_block)
                 except KeyboardInterrupt:
                     print("[-] Cancelled writing file")
                     return -1
@@ -446,7 +434,7 @@ class FileSystem:
             self.xor_bitmap(inode.direct[i])
             self.bitmap[inode.direct[i]] = 0
         if inode.indirect != 0:
-            indirect_block = self.read_block(inode.indirect)
+            indirect_block = self.read_sector(inode.indirect)
             for i in range(0, self.block_size, 4):
                 pointer = int.from_bytes(indirect_block[i:i+4], byteorder="big")
                 if pointer == 0:
@@ -456,12 +444,12 @@ class FileSystem:
             self.xor_bitmap(inode.indirect)
             self.bitmap[inode.indirect] = 0
         if inode.double_indirect != 0:
-            double_indirect_block = self.read_block(inode.double_indirect)
+            double_indirect_block = self.read_sector(inode.double_indirect)
             for i in range(0, self.block_size, 4):
                 indirect_pointer = int.from_bytes(double_indirect_block[i:i+4], byteorder="big")
                 if pointer == 0:
                     break
-                indirect_block = self.read_block(indirect_pointer)
+                indirect_block = self.read_sector(indirect_pointer)
                 for j in range(0, self.block_size, 4):
                     pointer = int.from_bytes(indirect_block[j:j+4], byteorder="big")
                     if pointer == 0:
@@ -500,8 +488,8 @@ class FileSystem:
         try:
             stop = self.offset_data
             for i in range(stop):
-                self.write_block(i, b"\x00"*self.block_size)
-                print(f"[*] Resetting disk, {i}/{stop} ({round(i/(stop)*100)}%)", end="\r")
+                self.write_sector(i, b"\x00"*self.block_size)
+                #print(f"[*] Resetting disk, {i}/{stop} ({round(i/(stop)*100)}%)", end="\r")
         except KeyboardInterrupt:
             print("[+] Skipped some blocks")
         self.directory = {}
@@ -518,6 +506,14 @@ class FileSystem:
             inode = self.directory[inode_name]
             used_space += inode.size
         return used_space
+    
+    def read_test(self):
+        """Read test"""
+        print("SuperBlock:", self.read_sector(0))
+        print("1st bitmap block:", self.read_sector(1))
+        print("1st inode block:", self.read_sector(self.number_of_bitmap_blocks+1), self.number_of_bitmap_blocks+1)
+        print("1st data block:", self.read_sector(self.offset_data))
+        return
 
 if __name__ == "__main__":
     def main():
@@ -532,7 +528,7 @@ if __name__ == "__main__":
             total_inodes = instance.number_of_inode_blocks*64
             print(f"inodes: {len(instance.directory)}/{total_inodes} ({round(len(instance.directory)/total_inodes*100)}%)")
             print(f"Used space: {instance.disk.to_humain_readable(instance.calculate_used_space())}")
-            print(f"blocks: BitMap: {instance.number_of_bitmap_blocks}, Inode: {instance.number_of_inode_blocks}")
+            if DEBUG:print(f"blocks: BitMap: {instance.number_of_bitmap_blocks}, Inode: {instance.number_of_inode_blocks}")
             print("\nOptions: [list, read <file>, dump <file>, create <file>, delete <file>, rename <old> <new>, reset, exit, benchmark]")
             command = input("> ")
             if command == "list":
@@ -630,6 +626,8 @@ if __name__ == "__main__":
                         print(f"    - {action}: {round(times[mode][action],4)}s")
                 instance.mode = "crypt"
                 instance.reset_disk()
+            elif command == "test":
+                instance.read_test()
             else:
                 print("Invalid command")
             input("Press Enter to continue...")

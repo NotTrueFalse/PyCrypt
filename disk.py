@@ -89,14 +89,18 @@ class Disk:
         win32file.CloseHandle(self.read_disk_handle)
         self.read_disk_handle = None
 
-    def read_sector(self, sector_number: int)->bytes:
+    def read_sector(self, sector_number: int, block_size: int = None)->bytes:
         """Read a specific sector by its number"""
+        if block_size is None:
+            block_size = self.sector_size
+        if block_size % self.sector_size != 0:
+            raise ValueError(f"Data size must be a multiple of {self.sector_size} bytes")
         try:
-            offset = sector_number * self.sector_size + self.skip * self.sector_size
+            offset = sector_number * block_size + self.skip * block_size
             if self.read_disk_handle is None:
                 self.read_disk_handle = self.get_handle()
             win32file.SetFilePointer(self.read_disk_handle, offset, win32file.FILE_BEGIN)
-            result, data = win32file.ReadFile(self.read_disk_handle, self.sector_size)
+            result, data = win32file.ReadFile(self.read_disk_handle, block_size)
             return data
         except Exception as e:
             print(f"Error reading sector {sector_number}: {e}")
@@ -104,12 +108,14 @@ class Disk:
 
     def write_sector(self, sector_number, data):
         """Write data to a specific sector"""
-        if len(data) != self.sector_size:
-            raise ValueError(f"Data size must be exactly {self.sector_size} bytes")
+        block_size = len(data)
+        if block_size % self.sector_size != 0:
+            raise ValueError(f"Data size must be a multiple of {self.sector_size} bytes")
         write_disk_handle = self.get_handle()
         try:
             # Set the file pointer to the correct sector
-            position = sector_number * self.sector_size + self.skip * self.sector_size
+            #offset based on block_size
+            position = sector_number * block_size + self.skip * block_size
             win32file.SetFilePointer(write_disk_handle, position, win32file.FILE_BEGIN)
                 # Write the data to the sector
             win32file.WriteFile(write_disk_handle, data)
@@ -183,23 +189,15 @@ class Disk:
         
 
 if __name__ == "__main__":
-    serial = ""
+    with open("config.ini", "r") as f:
+        serial = f.readline().strip().split("=")[1]
     skip = 0
     disk = Disk(serial, skip)
-    # disk.umount()
     input("Press enter to continue")
 # ----------- TEST ------------
-    # sector_n = disk.find_string("FLAG")
-    # print(f"found empty sector {sector_n}")
-    # sector = disk.empty_sector_with_data(b"FLBG")
-    # disk.write_sector(sector_n, sector)
-    # sector = disk.read_sector(sector_n)
-    # assert sector == disk.empty_sector_with_data(b"FLBG")
-    # disk.mount()
-    size = (1024**2)*5
-    print(disk.sector_size, size, disk.sector_size)
-    for i in range(disk.sector_size, size, disk.sector_size):
-        sector = disk.read_sector(i)
-        if any(sector):
-            print(f"sector {i//disk.sector_size}: {sector}")
-            disk.write_sector(i//disk.sector_size, disk.empty_sector_with_data(b""))
+    bsize = 4096*2#IT WORKS WITH > 4096 bytes ??? 
+    #write a sector
+    disk.write_sector(0, b"\x11" * bsize)#trying to write more than a sector
+    #read a sector
+    sector = disk.read_sector(0, bsize)#trying to read more than a sector
+    print(sector == b"\x11" * bsize)

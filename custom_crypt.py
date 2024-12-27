@@ -27,6 +27,7 @@ class SectorCrypt:
             salt_len=len(self.pin),
         )
         self.password = self._derive_password()
+        self.aes_module = AES.new(self.password, AES.MODE_ECB)
 
     def _derive_password(self) -> bytes:
         """
@@ -43,33 +44,32 @@ class SectorCrypt:
     def _generate_seed(self, sector_number: int) -> int:
         """Generate a deterministic seed based on password and sector number."""
         combined = self.password + sector_number.to_bytes(4, "big") + self.pin
-        return int(hashlib.sha256(combined).hexdigest(), 16)
+        return int(combined.hex(), 16)#we don't want to sha256 for every sector else it will be slow
 
     def encrypt_sector(self, sector_number: int, data: bytes) -> bytes:
         """Encrypt a sector with AES, shuffle, and add noise."""
         if len(data) % 16 != 0:#don't pad if already a multiple of 16
             data = pad(data, AES.block_size)
-        cipher = AES.new(self.password, AES.MODE_ECB)
-        encrypted_data = cipher.encrypt(data)
-        shuffled_data = self._shuffle_bytes(sector_number, encrypted_data)
-        noisy_data = self._noise(sector_number, shuffled_data)
+        encrypted_data = self.aes_module.encrypt(data)
+        seed = self._generate_seed(sector_number)
+        shuffled_data = self._shuffle_bytes(seed, encrypted_data)
+        noisy_data = self._noise(seed, shuffled_data)
         if len(noisy_data) != len(data):
             raise ValueError("Data length changed during encryption!")
         return noisy_data
 
     def decrypt_sector(self, sector_number: int, data: bytes) -> bytes:
         """Reverse noise, unshuffle, and decrypt a sector."""
-        unnoised_data = self._noise(sector_number, data)
-        unshuffled_data = self._shuffle_bytes(sector_number, unnoised_data, reverse=True)
-        cipher = AES.new(self.password, AES.MODE_ECB)
-        decrypted_data = cipher.decrypt(unshuffled_data)
+        seed = self._generate_seed(sector_number)
+        unnoised_data = self._noise(seed, data)
+        unshuffled_data = self._shuffle_bytes(seed, unnoised_data, reverse=True)
+        decrypted_data = self.aes_module.decrypt(unshuffled_data)
         if len(decrypted_data) % 16 != 0:
             decrypted_data = unpad(decrypted_data, AES.block_size)
         return decrypted_data
 
-    def _shuffle_bytes(self, sector_number: int, data: bytes, reverse=False) -> bytes:
+    def _shuffle_bytes(self, seed: int, data: bytes, reverse=False) -> bytes:
         """Shuffle or unshuffle bytes deterministically based on seed."""
-        seed = self._generate_seed(sector_number)
         if not reverse:
             data = bytearray(data)
             random.Random(seed).shuffle(data)
@@ -80,9 +80,8 @@ class SectorCrypt:
         return bytes(unshuffled_data)
 
 
-    def _noise(self, sector_number: int, data: bytes) -> bytes:
+    def _noise(self, seed: int, data: bytes) -> bytes:
         """XOR each byte with a pseudorandom byte generated from the seed."""
-        seed = self._generate_seed(sector_number)
         random.seed(seed)
         noise = [random.randint(0, 255) for _ in range(len(data))]
         return bytes(data[i] ^ noise[i] for i in range(len(data)))
