@@ -26,7 +26,6 @@ the script always as to be run as root because we're touching at disk sectors di
 - the rest: block of data (used to store data or pointer to data or double pointer to data)
 ![system layout](https://github.com/NotTrueFalse/PyCrypt/blob/main/FS_layout.png?raw=true)
 
-(I'll make an image if this isn't understandable)
 ## system
 the system is pretty simple, when we create a file it creates a new Inode, a 64 bytes variable used to store multiple things:
 - isValid (byte 0)
