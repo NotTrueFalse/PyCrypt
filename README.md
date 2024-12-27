@@ -27,19 +27,18 @@ the script always as to be run as root because we're touching at disk sectors di
 ![system layout](https://github.com/NotTrueFalse/PyCrypt/blob/main/FS_layout.png?raw=true)
 
 ## system
-the system is pretty simple, when we create a file it creates a new Inode, a 64 bytes variable used to store multiple things:
-- isValid (byte 0)
-- size (bytes 1 to 8)
-- name (8 to 40)
-- direct pointers to data block (40 to 44)
-- direct (44 to 48)
-- direct (...)
-- direct (...)
-- Indirect (points to a Pointer block) (56 to 60)
-- Double Indirect (points to a Pointer block) (60 to 64)
+the system is pretty simple, when we create a file it creates a new Inode (64 bytes). When you write the data of the file on the disk, it saves using the bitmap the used blocks, to trace wich block is free or unused (0 = free, 1 used), the max size for a file is 4GB (block_size\*(4+1024+1024\*1024): 4 direct + 1024 pointer (indirect) + 1024\*1024 pointer (double indirect))
 
-When you write the data of the file on the disk, it saves using the bitmap the used blocks, to trace wich block is free or unused (0 = free, 1 used),
-the max size for a file is 4GB (block_size\*(4+1024+1024\*1024): 4 direct + 1024 pointer (indirect) + 1024\*1024 pointer (double indirect))
+### Inodes
+    - isValid (byte 0)
+    - size (bytes 1 to 8)
+    - name (8 to 40)
+    - direct pointers to data block (40 to 44)
+    - direct (44 to 48)
+    - direct (...)
+    - direct (...)
+    - Indirect (points to a Pointer block) (56 to 60)
+    - Double Indirect (points to a Pointer block) (60 to 64)
 
 # Options
 - read / create / dump / delete files
@@ -52,7 +51,7 @@ the max size for a file is 4GB (block_size\*(4+1024+1024\*1024): 4 direct + 1024
 - final_key: sha256(password) (32 bytes)
 
 # Encrypt Method
-- generate a seed -> int(sha256(final_key+sector_number.tobyte(4,"big")),16)
+- generate a seed -> int((final_key+sector_number.tobyte(4,"big")).hex(),16)
 - encrypted -> AES(final_key,MODE_ECB)
 - shuffle_bytes(seed,encrypted_data)
 - add_noise(seed,shuffled_data)
@@ -63,17 +62,20 @@ basicly the inverse of encrypt (un-noise -> unshuffle -> decrypt)
 # Benchmark 
 using random 5MB of data for a external SSD (max 550 Mo/s)
 - Encrypted:
-    - reset: 0.2513s
-    - write: 11.6727s
-    - read: 9.675s
-    - delete: 0.075s
+    - reset: 10.3597s
+    - write: 6.36s
+    - read: 7.6491s
+    - delete: 0.077s
 - plain:
-    - reset: 0.193s
-    - write: 0.085s
-    - read: 0.002s
-    - delete: 0.081s
+    - reset: 0.7682s
+    - write: 0.02s
+    - read: 0.0009s
+    - delete: 0.0204s
 
 # PS
 I know its slow and not finished, I'm publishing this project in the hope of some people explaining why and how to make this project better.
 There are not drivers to mimic 1:1 veracrypt because you need to code in C/C++ to make one, and I'm not an expert in this langage, I tried to find one but none matched my intention.
 I wanted to make a simple Gui but it's not finished, I'll add it when done.
+
+## PPS
+It's written octet instead of byte because it can be confusing for some people to differenciate bit and byte.
