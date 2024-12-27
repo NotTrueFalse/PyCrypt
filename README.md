@@ -24,6 +24,7 @@ the script always as to be run as root because we're touching at disk sectors di
 - block 1 to blocksize\*8: bitmap blocks, used to determine if a block is used or not
 - block blocksize\*8 to blocksize\*8+.001% of disksize: inode blocks, used to store inode (or file if you prefer)
 - the rest: block of data (used to store data or pointer to data or double pointer to data)
+![system layout](https://github.com/NotTrueFalse/PyCrypt/blob/main/FS_layout.png?raw=true)
 
 (I'll make an image if this isn't understandable)
 ## system
