@@ -1,6 +1,7 @@
 import sys
+from PyQt5.QtCore import *
+from PyQt5.QtGui  import *
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import Qt
 from FS import FileSystem
 import os
 
@@ -34,11 +35,17 @@ class FSExplorerGUI(QMainWindow):
         self.layout.addWidget(self.pin_label)
         self.pin = QLineEdit()
         self.pin.setEchoMode(QLineEdit.Password)
+        self.pin.keyPressEvent = self.login_press_event
         self.layout.addWidget(self.pin)
 
         self.login_btn = QPushButton("Login")
         self.login_btn.clicked.connect(self.login)
         self.layout.addWidget(self.login_btn)
+
+    def login_press_event(self, e):
+        if e.key() == Qt.Key_Return:
+            return self.login()
+        return QLineEdit.keyPressEvent(self.pin, e)
 
     def initUI(self):#file + btn to create / delete
         self.file_list = QListWidget()
@@ -77,8 +84,6 @@ class FSExplorerGUI(QMainWindow):
         self.file_list.clear()
         for fname in self.fs.directory:
             item = QListWidgetItem(f"{fname} {to_humain_readable(self.fs.directory[fname].size)}")
-            #add right click so we can rename
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
             self.file_list.addItem(item)
 
     def on_right_click(self,pos):
