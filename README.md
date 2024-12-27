@@ -15,7 +15,7 @@ the script always as to be run as root because we're touching at disk sectors di
 - AES_ECB is bad because its predictable (there's no IV, so 2 sector could be identified as same), but with the layer of shuffle and noise this problem disappear (the seed is generated from the password hash and the sector number).
 
 # FileSystem
-- A really easy implementation of ext file system (based on ![this](https://www3.nd.edu/~pbui/teaching/cse.30341.fa17/project06.html) )
+- A really easy implementation of ext file system (based on [this](https://www3.nd.edu/~pbui/teaching/cse.30341.fa17/project06.html) )
 - 1 block = 4096 bytes
 - No directory system for now
 
