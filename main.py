@@ -144,20 +144,11 @@ class FSExplorerGUI(QMainWindow):
         if ok and file_name and " " not in file_name:
             file_path, _ = QFileDialog.getOpenFileName(self, "Select a source file")
             if file_path:
-                self.create_file(file_name, file_path)
+                self.fs.create_file(file_name, file_path)
+                fsize = os.path.getsize(file_path)
+                self.file_list.addItem(f"{file_name} {to_humain_readable(fsize)}")
         elif " " in file_name:
             print("File name cannot contain spaces!")
-
-    def create_file(self, file_name, file_path):
-        if not self.fs:
-            print("Filesystem not initialized!")
-            return
-        print(f"Creating file: {file_name} from {file_path}")
-        fsize = os.path.getsize(file_path)
-        with open(file_path, "rb") as f:
-            if self.fs.create_file(file_name, f.read()):
-                print(f"File {file_name} created!")
-        self.file_list.addItem(f"{file_name} {to_humain_readable(fsize)}")
 
     def delete_file(self):
         if not self.fs:

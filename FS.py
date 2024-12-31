@@ -312,7 +312,7 @@ class FileSystem:
                     return inode
         return None
 
-    def create_file(self, filename:str, data:bytes):
+    def create_file(self, filename:str,path:str):
         """Create file on disk:
             - Search for file in directory (in memory)
             - If file exists, return False
@@ -326,13 +326,13 @@ class FileSystem:
         inode = self.find_free_inode()
         if inode is None:
             return False
-        inode.size = len(data)
+        inode.size = os.path.getsize(path)
         inode.name = filename
         inode.valid = True
         inode.direct = [0]*4
         inode.indirect = 0
         inode.double_indirect = 0
-        test = self.write_data(inode, data)
+        test = self.write_data(inode, path)
         if test == -1:
             return False
         self.add_inode(inode)
@@ -360,7 +360,7 @@ class FileSystem:
         percentage = round((ogsize-size)/ogsize*100)
         print(f"[*] {action} file, {self.disk.to_humain_readable(size)} remaining ({percentage}%)", end="\r")
 
-    def write_data(self, inode:Inode, data:bytes):#to update direct & indirect pointers
+    def write_data(self, inode:Inode, path:str):
         """Write data to disk:
         - for 4 first data blocks, write data
         - if data > 4*self.block_size, write to indirect block
@@ -370,25 +370,29 @@ class FileSystem:
         """
         # ogsize = len(data)
         # t1 = time.time()
+        if os.path.getsize(path) > self.block_size*(4+1024+1024*1024):
+            print("[-] File too big")
+            return -1
+        file = open(path, "rb")
         for i in range(4):
+            data = file.read(self.block_size)
             if not data:
                 break
             if inode.direct[i] == 0:
                 inode.direct[i] = self.find_free_data_block()
-            self.write_sector(inode.direct[i], data[:self.block_size])
+            self.write_sector(inode.direct[i], data)
             # self.loading("Writing",len(data),ogsize,t1)
-            data = data[self.block_size:]
         if data:
             if inode.indirect == 0:
                 inode.indirect = self.find_free_data_block()
             indirect_block = b""
             for i in range(0, self.block_size, 4):
+                data = file.read(self.block_size)
                 if not data:
                     break
                 pointer = self.find_free_data_block()
                 indirect_block += pointer.to_bytes(4, byteorder="big")
-                self.write_sector(pointer, data[:self.block_size])
-                data = data[self.block_size:]
+                self.write_sector(pointer, data)
                 # self.loading("Writing",len(data),ogsize,t1)
             self.write_sector(inode.indirect, indirect_block)
             if data:
@@ -403,12 +407,12 @@ class FileSystem:
                         double_indirect_block += indirect_pointer.to_bytes(4, byteorder="big")
                         indirect_block = b""
                         for j in range(0, self.block_size, 4):
+                            data = file.read(self.block_size)
                             if not data:
                                 break
                             pointer = self.find_free_data_block()
                             indirect_block += pointer.to_bytes(4, byteorder="big")
-                            self.write_sector(pointer, data[:self.block_size])
-                            data = data[self.block_size:]
+                            self.write_sector(pointer, data)
                             # self.loading("Writing",len(data),ogsize,t1)
                         self.write_sector(indirect_pointer, indirect_block)
                     self.write_sector(inode.double_indirect, double_indirect_block)
@@ -558,10 +562,7 @@ if __name__ == "__main__":
             elif command.startswith("create "):
                 filename = command.split(" ")[1]
                 path = askopenfilename()
-                with open(path, "rb") as f:
-                    data = f.read()
-                    f.close()
-                if instance.create_file(filename, data):
+                if instance.create_file(filename,path) != -1:
                     print("File created successfully")
                 else:
                     print("Failed to create file")
@@ -588,6 +589,10 @@ if __name__ == "__main__":
                 if not input("This will break the filesystem, are you sure? (y/n) ").startswith("y"):continue
                 print("Benchmarking...")
                 data = os.urandom((1024**2)*5)
+                with open("benchmark", "wb") as f:
+                    f.write(data)
+                    f.close()
+                del data
                 times  = {
                     "crypt":{},
                     "plain":{}
@@ -596,7 +601,7 @@ if __name__ == "__main__":
                 instance.reset_disk()
                 times["crypt"]["reset"] = time.time()-times["crypt"]["reset"]
                 times["crypt"]["write"] = time.time()
-                instance.create_file("benchmark", data)
+                instance.create_file("benchmark", "benchmark")
                 times["crypt"]["write"] = time.time()-times["crypt"]["write"]
                 times["crypt"]["read"] = time.time()
                 for data in instance.read_file("benchmark"):
@@ -610,7 +615,7 @@ if __name__ == "__main__":
                 instance.reset_disk()
                 times["plain"]["reset"] = time.time()-times["plain"]["reset"]
                 times["plain"]["write"] = time.time()
-                instance.create_file("benchmark", data)
+                instance.create_file("benchmark", "benchmark")
                 times["plain"]["write"] = time.time()-times["plain"]["write"]
                 times["plain"]["read"] = time.time()
                 for data in instance.read_file("benchmark"):
